@@ -276,7 +276,15 @@ static inline SEL prefixedSelector(SEL original) {
 	SEL a2_setter = prefixedSelector(setter);
 
 	IMP getterImplementation = imp_implementationWithBlock(^(NSObject *delegatingObject) {
-		return [[delegatingObject bk_dynamicDelegateForProtocol:a2_protocolForDelegatingObject(delegatingObject, protocol)] realDelegate];
+		// iOS 8 uses this getterImplementation when performing UIAlertView delegation, this prevents BlocksKit from executing its blocks.
+		// Returning the A2DynamicDelegate fixes the issues but will never return the original delegate
+        id delegate;
+        if ([NSStringFromProtocol(protocol) isEqualToString:@"UIAlertViewDelegate"]) {
+            delegate = [delegatingObject bk_dynamicDelegateForProtocol:a2_protocolForDelegatingObject(delegatingObject, protocol)];
+        } else {
+            delegate = [[delegatingObject bk_dynamicDelegateForProtocol:a2_protocolForDelegatingObject(delegatingObject, protocol)] realDelegate];
+        }
+		return delegate;
 	});
 
 	IMP setterImplementation = imp_implementationWithBlock(^(NSObject *delegatingObject, id delegate) {
@@ -288,6 +296,8 @@ static inline SEL prefixedSelector(SEL original) {
 			if (!bk_object_isKindOfClass(originalDelegate, [A2DynamicDelegate class])) {
 				void (*setterDispatch)(id, SEL, id) = (void (*)(id, SEL, id)) objc_msgSend;
 				setterDispatch(delegatingObject, a2_setter, dynamicDelegate);
+			} else if (delegate && [NSStringFromProtocol(protocol) isEqualToString:@"UIAlertViewDelegate"]) {
+				@throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Unable to set UIAlertView delegate using BlocksKit due to iOS 8 issue https://github.com/zwaldowski/BlocksKit/issues/251" userInfo:nil];
 			}
 		}
 
